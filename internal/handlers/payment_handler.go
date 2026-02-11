@@ -4,12 +4,26 @@ import (
 	"e_commerce/internal/config"
 	"e_commerce/internal/middleware"
 	"e_commerce/internal/models"
-	"strconv"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+
+	//"io"
+	"log"
 	"net/http"
+
+	//"os"
+	"strconv"
+	//"encoding/json"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stripe/stripe-go/v78"
 	"github.com/stripe/stripe-go/v78/paymentintent"
+	"github.com/stripe/stripe-go/v78/webhook"
+	"gorm.io/gorm"
+	//"github.com/stripe/stripe-go/v78/webhook"
 	//"github.com/stripe/stripe-go/v78"
 	//"github.com/stripe/stripe-go/v78/paymentintent"
 	//"github.com/joho/godotenv"
@@ -41,7 +55,8 @@ func Stripe_Payment(c *gin.Context){
 	var order models.Order
 
 	//checking order exists or not
-	err=config.DB.Preload("OrderItems.Product").First(&order,req.OrderID).Error
+	//err=config.DB.Preload("OrderItems.Product").First(&order,req.OrderID).Error
+	err=config.DB.First(&order,req.OrderID).Error
 	if err!=nil{
 		c.JSON(http.StatusInternalServerError,gin.H{
 			"message":"database error",
@@ -59,29 +74,17 @@ func Stripe_Payment(c *gin.Context){
 	//if the order placed by the same user or not
 	if user.ID !=order.UserID{
 		c.JSON(http.StatusBadRequest,gin.H{
-			"message":"sala jomidar onnor order e tui payment diccis!",
+			"message":"wrong payment id",
 		})
 		return
 	}
 
-	//
-	if order.OrderStatus=="canceled"{
+	if order.PaymentMethod!="stripe" && order.OrderStatus!="waiting for payment"{
 		c.JSON(http.StatusBadRequest,gin.H{
-			"message":"your order was cancled reorder the product again",
+			"message:":"please choose correct order",
 		})
 		return
-	}
-	// if order.PaymentMehtod=="cod"{
-	// 	c.JSON(http.StatusBadRequest,gin.H{
-	// 		"message":"you choose cash on delivery",
-	// 	})
-	// 	return
-	// }
-	if order.PaymentStatus=="paid"{
-		c.JSON(http.StatusBadRequest,gin.H{
-			"message":"you already paid for this order",
-		})
-		return
+
 	}
 	
 	//stripe part
@@ -96,7 +99,7 @@ func Stripe_Payment(c *gin.Context){
     	},
 		// optional metadata
 		Metadata: map[string]string{
-			"userId": strconv.Itoa(int(user.ID)),
+			"UserID": strconv.Itoa(int(user.ID)),
 			"OrderID":strconv.Itoa(int(order.ID)),
 			
 		},
@@ -110,20 +113,144 @@ func Stripe_Payment(c *gin.Context){
 	}
 
 	c.JSON(http.StatusOK,gin.H{
-		"order":order,
-		"message":"you are trying to pay for this order",
+
 		"clientSecret": intent.ClientSecret,
 		"paymentIntent":intent.ID,
 	})
 
-	//now check order status and payment method
 
 }
 
 
 func Stripe_Webhook(c *gin.Context){
 
-	c.JSON(http.StatusOK,gin.H{
-		"message":"not finished yet. working on this",
-	})
+	log.Println("webhook triggered")
+
+	payload,err:=io.ReadAll(c.Request.Body)
+	if err!=nil{
+		c.JSON(http.StatusBadRequest,gin.H{
+			"message":"failed to read request body",
+		})
+		return
+	}
+	sigHeader:=c.GetHeader("Stripe-Signature")
+	endpointSecret:=os.Getenv("STRIPE_WEBHOOK_SECRET")
+
+	event, err := webhook.ConstructEventWithOptions(
+		payload,
+		sigHeader,
+		endpointSecret,
+		webhook.ConstructEventOptions{			//have to do this for version mismatch
+			IgnoreAPIVersionMismatch: true,
+		},
+	)	
+
+	if err != nil {
+		log.Println(" Signature verification failed:", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"message": "Invalid signature",
+		})
+		return
+	}
+
+	// Derive informations from metadata and payment intent
+	var pi stripe.PaymentIntent
+
+	json.Unmarshal(event.Data.Raw,&pi)
+
+	orderIDstr:=pi.Metadata["OrderID"]
+	orderID,_:=strconv.ParseUint(orderIDstr,10,4)
+
+	userIDstr:=pi.Metadata["UserID"]
+	userID,_:=strconv.ParseUint(userIDstr,10,4)
+
+
+	payment :=models.Payment{
+		StripePaymentID: pi.ID,
+		OrderID: orderID,
+		UserID: userID,
+		Amount: int(pi.Amount),
+		Currency:string(pi.Currency),
+		//set status and did db transaction inside events
+	}
+
+	
+
+
+	if event.Type == "payment_intent.succeeded" {
+		
+		//Save the payment inside db
+		payment.Status="succeed"
+		err=config.DB.Create(&payment).Error
+		if err!=nil{
+			c.JSON(http.StatusInternalServerError,gin.H{
+				"message":"payment not saved inside db",
+			})
+			return
+		}           
+		
+		//make oder[id].status=payment done
+		 config.DB.Transaction(func(tx *gorm.DB) error {
+
+			//Inside Order table make the order status as payment done
+			var order models.Order
+			err=tx.Preload("OrderItems.Product").First(&order,orderID).Error
+			if err!=nil{
+				return err
+			}
+			var stockFinished bool
+
+    		//Decrease Product Stock by quantity
+			tx.Transaction(func(tx2 *gorm.DB)error{
+
+				for _,item :=range order.OrderItems{
+
+					product_id:=item.ProductID
+					quantity:=item.Quantity
+
+					var product models.Product
+					err:=tx2.Set("gorm:query_option","FOR_UPDATE").First(&product,product_id).Error
+					if err!=nil{
+						return err;
+					}
+					newStock:=product.Stock-quantity
+					if newStock<0 {
+						
+						stockFinished=true
+						return errors.New("in sufficiant stock")
+					}
+					product.Stock-=quantity
+					err=tx2.Save(&product).Error
+					
+					if err!=nil{
+						return err
+					}
+
+				}
+
+				return nil
+			})
+			if stockFinished{
+				order.OrderStatus="(need refund)Payment_Done_Insufficiant_Stock"
+				tx.Save(&order)
+			}else{
+				order.OrderStatus="Payment Done"
+				tx.Save(&order)
+			}
+			
+			
+     		return nil                  
+		})
+
+		
+	}else if event.Type == "payment_intent.payment_failed" {
+		fmt.Println("failed payment triggred","userID :" ,userID)
+		payment.Status="Failed"
+		err:=config.DB.Create(&payment)
+		if err!=nil{
+			fmt.Println("failed payment not created")
+		}
+		
+	}
+
 }

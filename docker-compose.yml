@@ -23,6 +23,21 @@ services:
         ports:
             - "8081:80"
 
+    # stripe:
+    #     image: stripe/stripe-cli
+    #     container_name: stripe-cli
+    #     command: listen --api-key ${STRIPE_SECRET_KEY} --forward-to http://localhost:8080/stripe/webhook
+    #     environment:
+    #         - STRIPE_API_KEY=${STRIPE_SECRET_KEY}
+
+    stripe:
+        image: stripe/stripe-cli
+        container_name: stripe-cli
+        command: listen --api-key ${STRIPE_SECRET_KEY} --forward-to http://localhost:8080/stripe/webhook
+        environment:
+        - STRIPE_API_KEY=${STRIPE_SECRET_KEY}
+        network_mode: host
+        restart: unless-stopped
 volumes:
     docker_e_commerce_v1:
         

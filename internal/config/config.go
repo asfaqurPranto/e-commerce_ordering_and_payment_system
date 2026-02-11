@@ -25,5 +25,6 @@ func Create_Schemas(){
 	DB.AutoMigrate(&models.Product{})
 	DB.AutoMigrate(&models.Cart{},&models.CartItem{})
 	DB.AutoMigrate(&models.Order{},&models.OrderItem{})
+	DB.AutoMigrate(&models.Payment{})
 
 }

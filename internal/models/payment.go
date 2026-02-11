@@ -1,15 +1,15 @@
 
 package models
-type payment struct{
+type Payment struct{
 	ID uint `gorm:"primaryKey"`
 	StripePaymentID string `gorm:"not null"`
 
-	OrderID uint 
-	Order `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	OrderID uint64 
+	Order Order `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	//foreign key created and db enforced relation
 
-	UserID uint 
-	User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	UserID uint64 
+	User User`gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 
 	Amount int `gorm:"not null"`

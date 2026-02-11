@@ -13,7 +13,7 @@ import(
 func init(){
 	//loading .env
 	godotenv.Load()
-	stripe.Key=os.Getenv("STRIPE_KEY")   
+	stripe.Key=os.Getenv("STRIPE_SECRET_KEY")   
 
 	config.Connect_MySQL()
 	config.Create_Schemas()
@@ -51,11 +51,11 @@ func main(){
 	// 	admin_route.POST("/delete-product",middleware.Login_required,moddieware.admin_required,handlers.Delete_product)
 
 	}
-
-	payment_route:=router.Group("/payment")
+///stripe/webhook
+	payment_route:=router.Group("/stripe")
 	{
-		payment_route.POST("/stripe-payment",middleware.Login_Required,handlers.Stripe_Payment)
-		payment_route.POST("/webhook",middleware.Login_Required,handlers.Stripe_Webhook)
+		payment_route.POST("/create-payment-intent",middleware.Login_Required,handlers.Stripe_Payment)
+		payment_route.POST("/webhook",handlers.Stripe_Webhook)
 	}
 	router.Run()
 

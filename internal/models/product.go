@@ -46,7 +46,7 @@ type Cart struct{
 
 }
 
-type OrderItem struct{
+type OrderItem struct{ //child
 	ID uint `gorm:"primaryKey" json:"-"`
 	OrderID uint  `gorm:"not null" json:"-"`
 
@@ -58,7 +58,7 @@ type OrderItem struct{
 }
 
 
-type Order struct{
+type Order struct{ //parent
 	ID uint `gorm:"primaryKey"`
 
 	UserID uint `gorm:"not null"`
@@ -66,8 +66,8 @@ type Order struct{
 
 	TotalAmount int `gorm:"not null"`
 
-	PaymentMehtod string `gorm:"not null"`
-	PaymentStatus string `gorm:"default:'pending'"`
+	PaymentMethod string `gorm:"not null"`
+	//PaymentStatus string `gorm:"default:'pending'"`
 
 
 	OrderStatus string `gorm:"default:'processing'"`

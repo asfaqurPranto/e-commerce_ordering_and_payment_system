@@ -290,9 +290,9 @@ func Direct_Order(c *gin.Context){
 		order:=models.Order{
 			UserID:userID,
 			TotalAmount: totalPrice,
-			PaymentMehtod: req.PaymentMethod,
-			PaymentStatus: "pending",
-			OrderStatus:"processing",
+			PaymentMethod: req.PaymentMethod,
+	
+			OrderStatus:"waiting for payment",
 			
 
 		}
